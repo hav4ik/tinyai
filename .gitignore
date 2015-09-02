@@ -1,0 +1,9 @@
+# gcc compiled headers
+
+*.gch
+
+# vim swap files
+
+*.swp
+
+
