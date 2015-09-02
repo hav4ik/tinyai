@@ -2,16 +2,19 @@
 #define __TINYNEAT_HPP__
 
 /* custom defines:
- * INCLUDE_ENABLED_GENES_IF_POSSIBLE - if during experiment you found that too many genes are
- *                                     disabled, you can use this option.
- * ALLOWING_RECURRENCY_IN_NETWORK    - allowing recurrent links 
+ * INCLUDE_ENABLED_GENES_IF_POSSIBLE  - if during experiment you found that too many genes are
+ *                                      disabled, you can use this option.
+ * ALLOW_RECURRENCY_IN_NETWORK	      - allowing recurrent links 
+ *
  */
 
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <queue>
 #include <cmath>
 #include <random>
+#include <unordered_map>
 
 namespace neat {
 
@@ -44,18 +47,28 @@ namespace neat {
 		} mutation_rates;
 		
 		unsigned int input_size;
+		unsigned int bias_size;
 		unsigned int output_size;
+		unsigned int functional_nodes;
 		
 		// pool's local random number generator
 		std::random_device rd;		
 		std::mt19937 generator;
 
-		pool(){
+		pool(unsigned int input, unsigned int output, unsigned int bias = 1){
+			input_size = input;
+			output_size = output;
+			bias_size = bias;
+			functional_nodes = input_size + output_size + bias_size;
+
 			// seed the mersenne twister with 
 			// a random number from our computer
 			generator.seed(rd());	
 
 		}
+
+		/* innovation tracking in current generation, should be cleared after each generation */
+		std::unordered_map<std::pair<from_node, to_node>, unsigned int> track;
 
 		/* evolutionary methods */
 		genome crossover(const genome& g1, const genome& g2);
@@ -80,7 +93,7 @@ namespace neat {
 		genome() = delete;
 		genome(pool* glob_pool){			
 			global_pool = glob_pool;
-			max_neuron = global_pool->input_size + global_pool->output_size;
+			max_neuron = global_pool->functional_nodes;
 		}
 		genome(const genome&) = default;
 		
@@ -157,7 +170,7 @@ namespace neat {
 		return child;	
 	}
 
-	unsigned int random_neuron(std::vector<gene>& genes, nonInput){
+	unsigned int random_neuron(std::vector<gene>& genes, bool nonInput){
 		// first neurons are inputs (sensors) and outputs
 
 	}
@@ -188,7 +201,58 @@ namespace neat {
 	}
 
 	void pool::mutate_link(genome& g, bool force_bias){
+		auto is_input = [&](unsigned int node) -> bool {
+				return node < this->input_size; };
+		auto is_output = [&](unsigned int node) -> bool {
+				return node < (this->input_size + this->output_size) && node >= this->input_size; };
+		auto is_bias = [&](unsigned int node) -> bool {
+				return node < this->functional_nodes && node >= 
+					(this->input_size + this->output_size); };
+
+		std::uniform_int_distribution<unsigned int> distributor1(0, g.max_neuron-1);
+		unsigned int neuron1 = distributor1(this->generator);
+
+		std::uniform_int_distribution<unsigned int> distributor2
+			(this->functional_nodes, g.max_neuron-1);
+		unsigned int neuron2 = distributor2(this->generator);
+
+		if (is_input(neuron1) && is_input(neuron2))
+			return;
+		if (is_output(neuron1) && is_output(neuron2))
+			return;
+		if (is_bias(neuron1) && is_bias(neuron2))
+			return;
+
+	#ifndef ALLOWING_RECURRENCY_IN_NETWORK
+		// check for recurrency using BFS
+		bool has_recurrence = false;
+		if (is_input(neuron1))
+			has_recurrence = false;
+		else {
+			std::queue<size_t> que;
+			std::vector<std::vector<unsigned int>> connections(g.max_neuron);
+			for (size_t i=0; i<g.genes.size(); i++)
+				connections[g.genes[i].from_node].push_back(g.genes[i].to_node);
 		
+			for (size_t i=0; i<connections[neuron1].size(); i++)
+				que.push(connections[neuron1][i]);
+
+			while (!que.empty()){
+				unsigned int tmp = que.queue();
+				if (tmp == neuron1){
+					has_recurrence = true;
+					break;
+				}
+				que.pop;
+				for (size_t i=0; i<connections[tmp].size(); i++)
+					que.push(connections[tmp][i]);				
+			}
+		}
+		if (has_recurrence)
+			return ;
+	#endif
+		
+		// now we can create a link
 
 	}	
 
