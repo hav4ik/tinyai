@@ -15,6 +15,7 @@
 #include <cmath>
 #include <random>
 #include <map>
+#include <algorithm>
 
 namespace neat {
 
@@ -116,6 +117,8 @@ namespace neat {
 		double disjoint(const genome& g1, const genome& g2);
 		double weights(const genome& g1, const genome& g2);
 		bool is_same_species(const genome& g1, const genome& g2);
+
+		void rank_globally();
 	};
 
 
@@ -455,7 +458,16 @@ namespace neat {
 		return dd + dw < this->delta_threshold;
 	}
 
-		
+
+	void pool::rank_globally(){
+		std::vector<genome*> global;
+		for (size_t s=0; s<this->species.size(); s++)
+			for (size_t i=0; i<this->species[s].genomes.size(); i++)
+				global.push_back(&(this->species[s].genomes[i]));			
+		std::sort(global.begin(), global.end(), [](genome* a, genome* b) -> bool {
+					return a->fitness < b->fitness; 
+				});
+	}	
 
 } // end of namespace neat
 
