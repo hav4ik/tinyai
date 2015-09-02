@@ -4,6 +4,7 @@
 /* custom defines:
  * INCLUDE_ENABLED_GENES_IF_POSSIBLE - if during experiment you found that too many genes are
  *                                     disabled, you can use this option.
+ * ALLOWING_RECURRENCY_IN_NETWORK    - allowing recurrent links 
  */
 
 #include <iostream>
@@ -17,8 +18,8 @@ namespace neat {
 	typedef struct {	
 		unsigned int innovation_num = -1;
 
-		unsigned int in_node = -1;
-		unsigned int out_node = -1;
+		unsigned int from_node = -1;
+		unsigned int to_node = -1;
 		double weight = 0.0;
 
 		bool enabled = true;
@@ -79,7 +80,7 @@ namespace neat {
 		genome() = delete;
 		genome(pool* glob_pool){			
 			global_pool = glob_pool;
-			max_neuron = global_pool->input_size;
+			max_neuron = global_pool->input_size + global_pool->output_size;
 		}
 		genome(const genome&) = default;
 		
@@ -186,7 +187,10 @@ namespace neat {
 		v[distributor(this->generator)]->enabled = enable;
 	}
 
-	
+	void pool::mutate_link(genome& g, bool force_bias){
+		
+
+	}	
 
 } // end of namespace neat
 
