@@ -199,11 +199,12 @@ namespace neat {
 	genome pool::crossover(const genome& g1, const genome& g2){
 		// Make sure g1 has the higher fitness, so we will include only disjoint/excess 
 		// genes from the first genome.
-		// If the fitness is equal then we will include from both genomes.
-		bool include_from_both = (g2.fitness == g1.fitness);				
+		// If the fitness is equal then we will include from both genomes.				
+		bool include_from_both = (g2.fitness == g1.fitness);
+		unsigned int include_counter;	
 		if (g2.fitness > g1.fitness)
 			return crossover(g2, g1);
-		
+		include_from_both = false;		
 		genome child(this->functional_nodes, this->mutation_rates);
 
 		auto it1 = g1.genes.begin();
@@ -212,43 +213,52 @@ namespace neat {
 		// coin flip random number distributor
 		std::uniform_int_distribution<int> coin_flip(1, 2);	
 
-		for (; it1 != g1.genes.end() && it2 != g2.genes.end(); it1++){			
+		for (; it1 != g1.genes.end(); it1++){			
 
 			// move forward if not match and include genes from the second genome
 			// if their fitness are equal
 			while ((*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end()){
-				if (include_from_both)
+				if (include_from_both){
 					child.genes.push_back(*it2);
+					include_counter++;
+				}
 				it2++;
 			}			
-		
+
 			// if innovation marks match, do the crossover, else include from the first
 			// genome because its fitness is not smaller than the second's 
 			
-			if ((*it2).innovation_num == (*it1).innovation_num){
-				// do the coin flip
-				int coin = coin_flip(this->generator);
-				
-
-			// now, after flipping the coin, we do the crossover.
-			#ifdef INCLUDE_ENABLED_GENES_IF_POSSIBLE
-				if (coin == 2 && (*it2).enabled)
-					child.genes.push_back(*it2);
-				else
+			if (it2 != g2.genes.end()){
+				if ((*it2).innovation_num == (*it1).innovation_num){
+					// do the coin flip
+					int coin = coin_flip(this->generator);
+					
+	
+				// now, after flipping the coin, we do the crossover.
+				#ifdef INCLUDE_ENABLED_GENES_IF_POSSIBLE
+					if (coin == 2 && (*it2).enabled)
+						child.genes.push_back(*it2);
+					else
+						child.genes.push_back(*it1);
+				#else
+					if (coin == 2)
+						child.genes.push_back(*it2);
+					else
+						child.genes.push_back(*it1);
+				#endif
+					
+					include_counter++;
+				} else 
+					// as said before, we include the disjoint gene
+					// from the first (with larger fitness) otherwise
 					child.genes.push_back(*it1);
-			#else
-				if (coin == 2)
-					child.genes.push_back(*it2);
-				else
-					child.genes.push_back(*it1);
-			#endif
-
-			} else 			
-
-				// as said before, we include from the first (with larger fitness) otherwise
-				child.genes.push_back(*it1);
+			} else 
+				child.genes.push_back(*it1);	
 
 		}
+		if (include_from_both && (it2 != g2.genes.end()))
+			while (it2 != g2.genes.end())
+				child.genes.push_back(*(it2++));
 
 		child.max_neuron = std::max(g1.max_neuron, g2.max_neuron);		
 		return child;	
@@ -302,50 +312,52 @@ namespace neat {
 		unsigned int neuron2 = distributor2(this->generator);
 			
 		if (is_output(neuron1) && is_output(neuron2))
-			return;
-		
+			return ;
+		if (is_bias(neuron2)) 
+			return ;	
+		if (neuron1 == neuron2 && (!force_bias))
+			return ;
 		if (is_output(neuron1))
 			std::swap(neuron1, neuron2);		
+
+		if (force_bias){
+			std::uniform_int_distribution<unsigned int> bias_choose
+				(this->input_size, this->input_size + this->output_size-1);
+			neuron1 = bias_choose(this->generator);			
+		}
 
 	#ifndef ALLOWING_RECURRENCY_IN_NETWORK
 		// check for recurrency using BFS
 		bool has_recurrence = false;
-		if (is_input(neuron1))
-			has_recurrence = false;
-		else {
-			std::queue<size_t> que;
-			std::vector<std::vector<unsigned int>> connections(g.max_neuron);
-			for (size_t i=0; i<g.genes.size(); i++)
-				connections[g.genes[i].from_node].push_back(g.genes[i].to_node);
-		
-			for (size_t i=0; i<connections[neuron1].size(); i++)
-				que.push(connections[neuron1][i]);
-
+		std::queue<unsigned int> que;
+		std::vector<std::vector<unsigned int>> connections(g.max_neuron);	
+		std::cerr << "         ";			
+		for (size_t i=0; i<g.genes.size(); i++)
+			connections[g.genes[i].from_node].push_back(g.genes[i].to_node);
+		connections[neuron1].push_back(neuron2);
+					
+		for (size_t i=0; i<connections[neuron1].size(); i++)
+			que.push(connections[neuron1][i]);
 			while (!que.empty()){				
-				unsigned int tmp = que.front();
-				if (tmp == neuron1){
-					has_recurrence = true;
-					break;
-				}
-				que.pop();
-				for (size_t i=0; i<connections[tmp].size(); i++)
-					que.push(connections[tmp][i]);				
+			unsigned int tmp = que.front();
+			if (tmp == neuron1){
+				has_recurrence = true;
+				break;
 			}
+			que.pop();
+			for (size_t i=0; i<connections[tmp].size(); i++)
+				que.push(connections[tmp][i]);				
 		}
+
 		if (has_recurrence)
 			return ;
+	
 	#endif
 		
 		// now we can create a link 
 		gene new_gene;
 		new_gene.from_node = neuron1;
-		new_gene.to_node = neuron2;
-	
-		if (force_bias){
-			std::uniform_int_distribution<unsigned int> bias_choose
-				(this->input_size, this->input_size + this->output_size-1);
-			new_gene.from_node = bias_choose(this->generator);			
-		}
+		new_gene.to_node = neuron2;	
 
 		// if genome already has this connection
 		for (size_t i=0; i<g.genes.size(); i++)
@@ -415,7 +427,7 @@ namespace neat {
 		g.mutation_rates.perturb_chance *= coefficient[coin_flip(this->generator)];
 
 		std::uniform_real_distribution<double> mutate_or_not_mutate(0.0, 1.0);
-
+	
 		if (mutate_or_not_mutate(this->generator) < g.mutation_rates.connection_mutate_chance)
 			this->mutate_weight(g);
 
@@ -458,8 +470,6 @@ namespace neat {
 		
 	}
 	
-
-
 	
 	double pool::disjoint(const genome& g1, const genome& g2){
 		auto it1 = g1.genes.begin();
@@ -535,9 +545,12 @@ namespace neat {
 	void pool::cull_species(bool cut_to_one) {
 		for (auto s = this->species.begin(); s != this->species.end(); s++) {
 			std::sort((*s).genomes.begin(), (*s).genomes.end(),
-					[](genome& a, genome& b){ return a.fitness < b.fitness; });
+					[](genome& a, genome& b){ return a.fitness > b.fitness; });
 
 			unsigned int remaining = std::ceil((*s).genomes.size() * 1. / 2.);
+			// this will leave the most fit genome in specie,
+			// letting him make more and more babies (until someone in
+			// specie beat him or he becomes weaker during mutations
 			if (cut_to_one)
 				remaining = 1;
 			while ((*s).genomes.size() > remaining)
@@ -546,12 +559,15 @@ namespace neat {
 	}
 
 	genome pool::breed_child(specie &s){
+		std::cerr << "### begin breeding child ###" << std::endl;
 		genome child(this->functional_nodes, this->mutation_rates);
 		std::uniform_real_distribution<double> distributor(0.0, 1.0);
 		std::uniform_int_distribution<unsigned int> choose_genome(0, s.genomes.size()-1);
 		if (distributor(this->generator) < this->mutation_rates.crossover_chance){
-			genome& g1 = s.genomes[choose_genome(this->generator)];
-			genome& g2 = s.genomes[choose_genome(this->generator)];
+			unsigned int g1id, g2id;
+			genome& g1 = s.genomes[g1id = choose_genome(this->generator)];
+			genome& g2 = s.genomes[g2id = choose_genome(this->generator)];
+			
 			// QUESTION: if g1 == g2, then you can make a baby by fapping?			
 			child = this->crossover(g1, g2);
 		}
@@ -560,10 +576,10 @@ namespace neat {
 			genome& g = s.genomes[choose_genome(this->generator)];
 			child = g;
 		}
-
+		std::cerr << "ended making child, now doing the mutation" << std::endl;
 		this->mutate(child);
+		std::cerr << "### end breeding child ###" << std::endl;
 		return child;
-	
 	}
 
 	void pool::remove_stale_species(){
@@ -590,7 +606,7 @@ namespace neat {
 		unsigned int sum = this->total_average_fitness();
 		auto s = this->species.begin();
 		while (s != this->species.end()){
-			double breed = std::floor((1. * (*s).average_fitness) / (1. * sum * this->population));
+			double breed = std::floor((1. * (*s).average_fitness)/(1. * sum)*1.*this->population);
 			if (breed >= 1.0)
 				s++;
 			else
@@ -623,12 +639,12 @@ namespace neat {
 		for (auto s = this->species.begin(); s != this->species.end(); s++)
 			this->calculate_average_fitness((*s));
 		this->remove_weak_species();
-		
+
 		std::vector<genome> children;
 		unsigned int sum = this->total_average_fitness();
 		for (auto s = this->species.begin(); s != this->species.end(); s++){
 			unsigned int breed = 
-				std::floor((1. * (*s).average_fitness) / (1. * sum * this->population));
+				std::floor( ((1.*(*s).average_fitness) / (1.*sum))*1.*this->population) - 1;
 			for (unsigned int i = 0; i < breed; i++)
 				children.push_back(this->breed_child(*s));
 		}
@@ -637,16 +653,20 @@ namespace neat {
 
 		// preparing for MAKING BABIES <3		
 		std::uniform_int_distribution<unsigned int> choose_specie(0, this->species.size()-1);
-		std::vector<specie*> species_pointer;
+		std::vector<specie*> species_pointer(0);
 		for (auto s = this->species.begin(); s != this->species.end(); s++)
 			species_pointer.push_back(&(*s));
+		if (this->generation_number ==2)
+			this->species.clear();
+		if (this->species.size() == 0)
+			std::cerr << "Wtf? Zero species in the world! All dead? Where is that fucking NOAH and his fucking boat?\n";
+		else
+			while (children.size() + this->species.size() < this->population)
+				children.push_back(
+						this->breed_child(*species_pointer[choose_specie(this->generator)]));		
 
-		while (children.size() + this->species.size() < this->population)
-			children.push_back(this->breed_child(*species_pointer[choose_specie(this->generator)]));
-	
 		for (size_t i=0; i<children.size(); i++)
-			this->add_to_species(children[i]);				
-
+			this->add_to_species(children[i]);	
 		this->generation_number++;
 	}	
 
