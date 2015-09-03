@@ -329,29 +329,32 @@ namespace neat {
 	#ifndef ALLOWING_RECURRENCY_IN_NETWORK
 		// check for recurrency using BFS
 		bool has_recurrence = false;
-		std::queue<unsigned int> que;
-		std::vector<std::vector<unsigned int>> connections(g.max_neuron);	
-		std::cerr << "         ";			
-		for (size_t i=0; i<g.genes.size(); i++)
-			connections[g.genes[i].from_node].push_back(g.genes[i].to_node);
-		connections[neuron1].push_back(neuron2);
-					
-		for (size_t i=0; i<connections[neuron1].size(); i++)
-			que.push(connections[neuron1][i]);
-			while (!que.empty()){				
-			unsigned int tmp = que.front();
-			if (tmp == neuron1){
-				has_recurrence = true;
-				break;
-			}
-			que.pop();
-			for (size_t i=0; i<connections[tmp].size(); i++)
-				que.push(connections[tmp][i]);				
-		}
+		if (is_bias(neuron1) || is_input(neuron1))
+			has_recurrence = false;
+		else {
 
+			std::queue<unsigned int> que;
+			std::vector<std::vector<unsigned int>> connections(g.max_neuron);	
+			for (size_t i=0; i<g.genes.size(); i++)
+				connections[g.genes[i].from_node].push_back(g.genes[i].to_node);
+			connections[neuron1].push_back(neuron2);
+						
+			for (size_t i=0; i<connections[neuron1].size(); i++)
+				que.push(connections[neuron1][i]);
+				while (!que.empty()){				
+				unsigned int tmp = que.front();
+				if (tmp == neuron1){
+					has_recurrence = true;
+					break;
+				}
+				que.pop();
+				for (size_t i=0; i<connections[tmp].size(); i++)
+					que.push(connections[tmp][i]);				
+			}
+		}
 		if (has_recurrence)
 			return ;
-	
+		
 	#endif
 		
 		// now we can create a link 
@@ -559,7 +562,6 @@ namespace neat {
 	}
 
 	genome pool::breed_child(specie &s){
-		std::cerr << "### begin breeding child ###" << std::endl;
 		genome child(this->functional_nodes, this->mutation_rates);
 		std::uniform_real_distribution<double> distributor(0.0, 1.0);
 		std::uniform_int_distribution<unsigned int> choose_genome(0, s.genomes.size()-1);
@@ -576,9 +578,8 @@ namespace neat {
 			genome& g = s.genomes[choose_genome(this->generator)];
 			child = g;
 		}
-		std::cerr << "ended making child, now doing the mutation" << std::endl;
-		this->mutate(child);
-		std::cerr << "### end breeding child ###" << std::endl;
+
+		this->mutate(child);		
 		return child;
 	}
 
@@ -631,7 +632,8 @@ namespace neat {
 		}										
 	}
 
-	void pool::new_generation(){
+	void pool::new_generation(){		
+
 		this->cull_species(false);			
 		this->rank_globally();
 		this->remove_stale_species();
@@ -656,8 +658,6 @@ namespace neat {
 		std::vector<specie*> species_pointer(0);
 		for (auto s = this->species.begin(); s != this->species.end(); s++)
 			species_pointer.push_back(&(*s));
-		if (this->generation_number ==2)
-			this->species.clear();
 		if (this->species.size() == 0)
 			std::cerr << "Wtf? Zero species in the world! All dead? Where is that fucking NOAH and his fucking boat?\n";
 		else
@@ -668,6 +668,8 @@ namespace neat {
 		for (size_t i=0; i<children.size(); i++)
 			this->add_to_species(children[i]);	
 		this->generation_number++;
+		if (this->generation_number % 10 == 0)
+			std::cerr << "Generation " << this->generation_number << " successfully created!" << std::endl;
 	}	
 
 	void pool::import_fromfile(std::string filename){
