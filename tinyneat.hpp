@@ -24,14 +24,6 @@
 
 namespace neat {
 
-	typedef struct {	
-		unsigned int innovation_num = -1;
-		unsigned int from_node = -1;
-		unsigned int to_node = -1;
-		double weight = 0.0;
-		bool enabled = true;
-	} gene;
-	
 	typedef struct {		
 		double connection_mutate_chance = 0.25;
 		double perturb_chance = 0.90;
@@ -42,10 +34,29 @@ namespace neat {
 		double step_size = 0.1;
 		double disable_mutation_chance = 0.4;
 		double enable_mutation_chance = 0.2;			
+
+		void read(std::ifstream& o);
+		void write(std::ofstream& o, std::string prefix);
 	} mutation_rate_container;
 
-	mutation_rate_container read_mutation_rates(std::ifstream& o);
-	void write_mutation_rates(std::ofstream& o, mutation_rate_container& rates, std::string prefix);
+	typedef struct {
+		unsigned int population = 300;
+		double delta_disjoint = 2.0;
+		double delta_weights = 0.4;
+		double delta_threshold = 3.0;
+		unsigned int stale_species = 15;
+
+		void read(std::ifstream& o);
+		void write(std::ofstream& o, std::string prefix);
+	} speciating_parameter_container;
+
+	typedef struct {	
+		unsigned int innovation_num = -1;
+		unsigned int from_node = -1;
+		unsigned int to_node = -1;
+		double weight = 0.0;
+		bool enabled = true;
+	} gene;
 
 	class genome {
 	private:
@@ -82,6 +93,25 @@ namespace neat {
 		std::vector<genome> genomes;
 	} specie;	
 
+	class innovation_container {
+	private:
+		unsigned int _number;
+		std::map<std::pair<unsigned int, unsigned int>, unsigned int> track;
+		void set_innovation_number(unsigned int num){ _number = num; reset(); }
+		friend class pool;
+	public:
+		innovation_container():_number(0){}			
+		void reset(){ track.clear(); };		
+		unsigned int add_gene(gene& g){
+			auto it = track.find(std::make_pair(g.from_node, g.to_node));
+			if (it == track.end())
+				return track[std::make_pair(g.from_node, g.to_node)] = ++_number;
+			else
+				return (*it).second;			
+		}
+		unsigned int number(){ return _number; }		
+	};
+
 
 	/* a small world, where individuals (genomes) are making babies and evolving,
 	 * becoming better and better after each generation :)
@@ -91,10 +121,7 @@ namespace neat {
 		pool(){};
 
 		/* important part, only accecible for friend */
-		unsigned int innovation_number = 0;	
-		unsigned int new_innovation(){
-			return ++innovation_number;
-		};		
+		innovation_container innovation;
 
 		unsigned int generation_number = 1;
 
@@ -106,11 +133,7 @@ namespace neat {
 		mutation_rate_container mutation_rates;
 
 		/* species parameters */
-		unsigned int population = 300;
-		double delta_disjoint = 2.0;
-		double delta_weights = 0.4;
-		double delta_threshold = 1.0;
-		unsigned int stale_species = 15;		
+		speciating_parameter_container speciating_parameters;
 
 		/* neural network parameters */
 		unsigned int input_size;
@@ -134,7 +157,7 @@ namespace neat {
 			generator.seed(rd());	
 
 			// create a basic generation with default genomes
-			for (unsigned int i = 0; i<this->population; i++){
+			for (unsigned int i = 0; i<this->speciating_parameters.population; i++){
 				genome new_genome(this->functional_nodes, this->mutation_rates);
 				this->mutate(new_genome);
 				this->add_to_species(new_genome);
@@ -192,19 +215,14 @@ namespace neat {
 		void export_tofile(std::string filename);		
 	};
 	
-
 	/* now the evolutionary functions itself */
 
 
 	genome pool::crossover(const genome& g1, const genome& g2){
 		// Make sure g1 has the higher fitness, so we will include only disjoint/excess 
 		// genes from the first genome.
-		// If the fitness is equal then we will include from both genomes.				
-		bool include_from_both = (g2.fitness == g1.fitness);
-		unsigned int include_counter;	
 		if (g2.fitness > g1.fitness)
 			return crossover(g2, g1);
-		include_from_both = false;		
 		genome child(this->functional_nodes, this->mutation_rates);
 
 		auto it1 = g1.genes.begin();
@@ -217,14 +235,9 @@ namespace neat {
 
 			// move forward if not match and include genes from the second genome
 			// if their fitness are equal
-			while ((*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end()){
-				if (include_from_both){
-					child.genes.push_back(*it2);
-					include_counter++;
-				}
+			while ((*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end())
 				it2++;
-			}			
-
+				
 			// if innovation marks match, do the crossover, else include from the first
 			// genome because its fitness is not smaller than the second's 
 			
@@ -233,7 +246,6 @@ namespace neat {
 					// do the coin flip
 					int coin = coin_flip(this->generator);
 					
-	
 				// now, after flipping the coin, we do the crossover.
 				#ifdef INCLUDE_ENABLED_GENES_IF_POSSIBLE
 					if (coin == 2 && (*it2).enabled)
@@ -247,7 +259,6 @@ namespace neat {
 						child.genes.push_back(*it1);
 				#endif
 					
-					include_counter++;
 				} else 
 					// as said before, we include the disjoint gene
 					// from the first (with larger fitness) otherwise
@@ -256,9 +267,6 @@ namespace neat {
 				child.genes.push_back(*it1);	
 
 		}
-		if (include_from_both && (it2 != g2.genes.end()))
-			while (it2 != g2.genes.end())
-				child.genes.push_back(*(it2++));
 
 		child.max_neuron = std::max(g1.max_neuron, g2.max_neuron);		
 		return child;	
@@ -274,7 +282,7 @@ namespace neat {
 			if (real_distributor(this->generator) < this->mutation_rates.perturb_chance) 
 				g.genes[i].weight += real_distributor(this->generator) * step * 2.0 - step;
 			else
-				g.genes[i].weight =  real_distributor(this->generator)*4 - 2.0; 
+				g.genes[i].weight =  real_distributor(this->generator)*4.0 - 2.0; 
 			
 		}
 	}
@@ -368,12 +376,7 @@ namespace neat {
 				return ;
 		
 		// add new innovation if needed
-		auto it = this->track.find(std::make_pair(neuron1, neuron2));
-		if (it == this->track.end())
-			new_gene.innovation_num = 
-				this->track[std::make_pair(neuron1, neuron2)] = this->new_innovation();
-		else
-			new_gene.innovation_num = (*it).second;
+		new_gene.innovation_num = this->innovation.add_gene(new_gene);
 
 		// mutate new link
 		std::uniform_real_distribution<double> weight_generator(0.0, 1.0);
@@ -401,14 +404,14 @@ namespace neat {
 		new_gene1.from_node = g.genes[gene_id].from_node;
 		new_gene1.to_node = g.max_neuron-1; // to the last created neuron
 		new_gene1.weight = 1.0;
-		new_gene1.innovation_num = this->new_innovation();
+		new_gene1.innovation_num = this->innovation.add_gene(new_gene1);
 		new_gene1.enabled = true;
 
 		gene new_gene2;
 		new_gene2.from_node = g.max_neuron-1; // from the last created neuron
 		new_gene2.to_node = g.genes[gene_id].to_node;
 		new_gene2.weight = g.genes[gene_id].weight;
-		new_gene2.innovation_num = this->new_innovation();
+		new_gene2.innovation_num = this->innovation.add_gene(new_gene2);
 		new_gene2.enabled = true;
 
 		g.genes.push_back(new_gene1);
@@ -479,12 +482,18 @@ namespace neat {
 		auto it2 = g2.genes.begin();
 
 		unsigned int disjoint_count = 0;
-		for (; it1 != g1.genes.end() && it2 != g2.genes.end(); it1++){
-			for (; (*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end(); it2++)
-				disjoint_count++;
-	
-			if ((*it1).innovation_num != (*it2).innovation_num)
-				disjoint_count++;			
+		for (; it1 != g1.genes.end(); it1++){	
+			if (it2 != g2.genes.end())
+				for (; (*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end(); it2++)
+					disjoint_count++;
+			if (it2 != g2.genes.end())
+				if ((*it1).innovation_num == (*it2).innovation_num)
+					continue;
+			disjoint_count++;
+		}
+		while (it2 != g2.genes.end()){
+			it2++;
+			disjoint_count++;
 		}
 
 		return (1. * disjoint_count) / (1. * std::max(g1.genes.size(), g2.genes.size()));
@@ -496,24 +505,28 @@ namespace neat {
 
 		double sum = 0.0;
 		unsigned int coincident = 0;
-		for (; it1 != g1.genes.end() && it2 != g2.genes.end(); it1++){
-			while ((*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end()) 
-				it2++;
+		for (; it1 != g1.genes.end(); it1++){
+			if (it2 != g2.genes.end())
+				while ((*it2).innovation_num < (*it1).innovation_num) {
+					it2++;
+					if (it2 == g2.genes.end())
+						break ;
+				}
 
-			
-			if ((*it1).innovation_num == (*it2).innovation_num){
-				coincident++;
-				sum += std::abs((*it1).weight - (*it2).weight);
-			}
+			if (it2 != g2.genes.end())	
+				if ((*it1).innovation_num == (*it2).innovation_num){
+					coincident++;
+					sum += std::abs((*it1).weight - (*it2).weight);
+				}
 		}
 
-		return sum / (1. * coincident);
+		return 1. * sum / (1. * coincident);
 	}
 
 	bool pool::is_same_species(const genome& g1, const genome& g2){
-		double dd = this->delta_disjoint * disjoint(g1, g2);
-		double dw = this->delta_weights * weights(g1, g2);
-		return dd + dw < this->delta_threshold;
+		double dd = this->speciating_parameters.delta_disjoint * disjoint(g1, g2);
+		double dw = this->speciating_parameters.delta_weights * weights(g1, g2);
+		return dd + dw < this->speciating_parameters.delta_threshold;
 	}
 
 
@@ -596,7 +609,7 @@ namespace neat {
 			else
 				(*s).staleness++;
 
-			if (! ((*s).staleness < this->stale_species || (*s).top_fitness >= this->max_fitness))
+			if (! ((*s).staleness < this->speciating_parameters.stale_species || (*s).top_fitness >= this->max_fitness))
 				this->species.erase(s++);
 			else
 				s++;			
@@ -607,7 +620,7 @@ namespace neat {
 		unsigned int sum = this->total_average_fitness();
 		auto s = this->species.begin();
 		while (s != this->species.end()){
-			double breed = std::floor((1. * (*s).average_fitness)/(1. * sum)*1.*this->population);
+			double breed = std::floor((1. * (*s).average_fitness)/(1. * sum)*1.*this->speciating_parameters.population);
 			if (breed >= 1.0)
 				s++;
 			else
@@ -634,6 +647,7 @@ namespace neat {
 
 	void pool::new_generation(){		
 
+		this->innovation.reset();
 		this->cull_species(false);			
 		this->rank_globally();
 		this->remove_stale_species();
@@ -646,7 +660,7 @@ namespace neat {
 		unsigned int sum = this->total_average_fitness();
 		for (auto s = this->species.begin(); s != this->species.end(); s++){
 			unsigned int breed = 
-				std::floor( ((1.*(*s).average_fitness) / (1.*sum))*1.*this->population) - 1;
+				std::floor( ((1.*(*s).average_fitness) / (1.*sum))*1.*this->speciating_parameters.population) - 1;
 			for (unsigned int i = 0; i < breed; i++)
 				children.push_back(this->breed_child(*s));
 		}
@@ -661,7 +675,7 @@ namespace neat {
 		if (this->species.size() == 0)
 			std::cerr << "Wtf? Zero species in the world! All dead? Where is that fucking NOAH and his fucking boat?\n";
 		else
-			while (children.size() + this->species.size() < this->population)
+			while (children.size() + this->species.size() < this->speciating_parameters.population)
 				children.push_back(
 						this->breed_child(*species_pointer[choose_specie(this->generator)]));		
 
@@ -683,7 +697,9 @@ namespace neat {
 		this->species.clear();
 		try {
 			// current state
-			input >> this->innovation_number;
+			unsigned int innovation_num;
+			input >> innovation_num;
+			this->innovation.set_innovation_number(innovation_num);
 			input >> this->generation_number;
 			input >> this->max_fitness;
 
@@ -692,14 +708,10 @@ namespace neat {
 			this->functional_nodes = input_size + output_size + bias_size;			
 
 			// population information
-			input >> this->population;
-			input >> this->delta_disjoint;
-			input >> this->delta_weights;
-			input >> this->delta_threshold;
-			input >> this->stale_species;
+			this->speciating_parameters.read(input);
 
 			// mutation parameters
-			this->mutation_rates = read_mutation_rates(input);	
+			this->mutation_rates.read(input);
 
 			// species information
 			unsigned int species_number;
@@ -724,7 +736,7 @@ namespace neat {
 					input >> new_genome.adjusted_fitness;
 					input >> new_genome.global_rank;
 					
-					new_genome.mutation_rates = read_mutation_rates(input);
+					new_genome.mutation_rates.read(input);
 
 					unsigned int gene_number;
 					input >> new_genome.max_neuron >> gene_number;
@@ -762,7 +774,7 @@ namespace neat {
 		}
 
 		// current state
-		output << this->innovation_number << std::endl;
+		output << this->innovation.number() << std::endl;
 		output << this->generation_number << std::endl;
 		output << this->max_fitness << std::endl;
 
@@ -772,14 +784,10 @@ namespace neat {
 		this->functional_nodes = input_size + output_size + bias_size;
 
 		// population information
-		output << this->population << std::endl;
-		output << this->delta_disjoint << std::endl;
-		output << this->delta_weights << std::endl;
-		output << this->delta_threshold << std::endl;
-		output << this->stale_species << std::endl;
+		this->speciating_parameters.write(output, "");
 
 		// mutation parameters
-		write_mutation_rates(output, this->mutation_rates, "");
+		this->mutation_rates.write(output, "");
 
 		// species information
 		output << this->species.size() << std::endl;
@@ -794,7 +802,7 @@ namespace neat {
 
 			output << "   " << (*s).genomes.size() << std::endl;
 			for (size_t i=0; i<(*s).genomes.size(); i++){
-				write_mutation_rates(output, (*s).genomes[i].mutation_rates, "      ");
+				this->mutation_rates.write(output, "      ");
 				output << "      ";
 			    output << (*s).genomes[i].fitness << " ";
 				output << (*s).genomes[i].adjusted_fitness << " ";
@@ -812,35 +820,47 @@ namespace neat {
 
 			output << std::endl << std::endl;
 		}
-
-
 	}
 
-	mutation_rate_container read_mutation_rates(std::ifstream& o){
-		mutation_rate_container result;
-		o >> result.connection_mutate_chance;
-		o >> result.perturb_chance;
-		o >> result.crossover_chance;
-		o >> result.link_mutation_chance;
-		o >> result.node_mutation_chance;
-		o >> result.bias_mutation_chance;
-		o >> result.step_size;
-		o >> result.disable_mutation_chance;
-		o >> result.enable_mutation_chance;
-		return result;
+	void mutation_rate_container::read(std::ifstream& o){
+		o >> this->connection_mutate_chance;
+		o >> this->perturb_chance;
+		o >> this->crossover_chance;
+		o >> this->link_mutation_chance;
+		o >> this->node_mutation_chance;
+		o >> this->bias_mutation_chance;
+		o >> this->step_size;
+		o >> this->disable_mutation_chance;
+		o >> this->enable_mutation_chance;
 	}
 
-	void write_mutation_rates(std::ofstream& o, mutation_rate_container& rates, std::string prefix){
-		o << prefix << rates.connection_mutate_chance << std::endl;
-		o << prefix << rates.perturb_chance << std::endl;
-		o << prefix << rates.crossover_chance << std::endl;
-		o << prefix << rates.link_mutation_chance << std::endl;
-		o << prefix << rates.node_mutation_chance << std::endl;
-		o << prefix << rates.bias_mutation_chance << std::endl;
-		o << prefix << rates.step_size << std::endl;
-		o << prefix << rates.disable_mutation_chance << std::endl;
-		o << prefix << rates.enable_mutation_chance << std::endl;
+	void mutation_rate_container::write(std::ofstream& o, std::string prefix){
+		o << prefix << this->connection_mutate_chance << std::endl;
+		o << prefix << this->perturb_chance << std::endl;
+		o << prefix << this->crossover_chance << std::endl;
+		o << prefix << this->link_mutation_chance << std::endl;
+		o << prefix << this->node_mutation_chance << std::endl;
+		o << prefix << this->bias_mutation_chance << std::endl;
+		o << prefix << this->step_size << std::endl;
+		o << prefix << this->disable_mutation_chance << std::endl;
+		o << prefix << this->enable_mutation_chance << std::endl;
 	}	
+
+	void speciating_parameter_container::read(std::ifstream& o){
+		o >> this->population;
+		o >> this->delta_disjoint;
+		o >> this->delta_weights;
+		o >> this->delta_threshold;
+		o >> this->stale_species; 
+	}
+
+	void speciating_parameter_container::write(std::ofstream& o, std::string prefix){
+		o << prefix << this->population;
+		o << prefix << this->delta_disjoint;
+		o << prefix << this->delta_weights;
+		o << prefix << this->delta_threshold;
+		o << prefix << this->stale_species; 
+	}
 
 } // end of namespace neat
 
