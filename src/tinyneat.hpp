@@ -50,6 +50,13 @@ namespace neat {
 		void write(std::ofstream& o, std::string prefix);
 	} speciating_parameter_container;
 
+	typedef struct {
+		unsigned int input_size;
+		unsigned int bias_size;
+		unsigned int output_size;
+		unsigned int functional_nodes;		
+	} network_info_container;
+
 	typedef struct {	
 		unsigned int innovation_num = -1;
 		unsigned int from_node = -1;
@@ -66,15 +73,17 @@ namespace neat {
 		unsigned int fitness = 0;
 		unsigned int adjusted_fitness = 0;
 		unsigned int global_rank = 0;
-
 		unsigned int max_neuron;
 
-		mutation_rate_container mutation_rates;		
+		mutation_rate_container mutation_rates;
+		network_info_container network_info;
+
 		std::vector<gene> genes;
 
-		genome(unsigned int functional_nodes, mutation_rate_container& rates){
-			max_neuron = functional_nodes;
+		genome(network_info_container& info, mutation_rate_container& rates){			
 			mutation_rates = rates;
+			network_info = info;
+			max_neuron = network_info.functional_nodes;
 		}
 		
 		genome(const genome&) = default;
@@ -136,21 +145,18 @@ namespace neat {
 		speciating_parameter_container speciating_parameters;
 
 		/* neural network parameters */
-		unsigned int input_size;
-		unsigned int bias_size;
-		unsigned int output_size;
-		unsigned int functional_nodes;		
-		
+		network_info_container network_info;		
+
 		// pool's local random number generator
 		std::random_device rd;		
 		std::mt19937 generator;
 
 		// constructor
 		pool(unsigned int input, unsigned int output, unsigned int bias = 1){
-			input_size = input;
-			output_size = output;
-			bias_size = bias;
-			functional_nodes = input_size + output_size + bias_size;
+			this->network_info.input_size = input;
+			this->network_info.output_size = output;
+			this->network_info.bias_size = bias;
+			this->network_info.functional_nodes = input + output + bias;
 
 			// seed the mersenne twister with 
 			// a random number from our computer
@@ -158,7 +164,7 @@ namespace neat {
 
 			// create a basic generation with default genomes
 			for (unsigned int i = 0; i<this->speciating_parameters.population; i++){
-				genome new_genome(this->functional_nodes, this->mutation_rates);
+				genome new_genome(this->network_info, this->mutation_rates);
 				this->mutate(new_genome);
 				this->add_to_species(new_genome);
 			}
@@ -223,7 +229,7 @@ namespace neat {
 		// genes from the first genome.
 		if (g2.fitness > g1.fitness)
 			return crossover(g2, g1);
-		genome child(this->functional_nodes, this->mutation_rates);
+		genome child(this->network_info, this->mutation_rates);
 
 		auto it1 = g1.genes.begin();
 		auto it2 = g2.genes.begin();
@@ -305,18 +311,18 @@ namespace neat {
 		 * | input nodes | bias | output nodes |
 		 */		
 		auto is_input = [&](unsigned int node) -> bool {
-				return node < this->input_size; };
+				return node < this->network_info.input_size; };
 		auto is_output = [&](unsigned int node) -> bool {
-				return node < this->functional_nodes && node >= 
-					(this->input_size + this->bias_size); };
+				return node < this->network_info.functional_nodes && node >= 
+					(this->network_info.input_size + this->network_info.bias_size); };
 		auto is_bias = [&](unsigned int node) -> bool {
-				return node < (this->input_size + this->bias_size) && node >= this->input_size; };
+				return node < (this->network_info.input_size + this->network_info.bias_size) && node >= this->network_info.input_size; };
 
 		std::uniform_int_distribution<unsigned int> distributor1(0, g.max_neuron-1);
 		unsigned int neuron1 = distributor1(this->generator);
 
 		std::uniform_int_distribution<unsigned int> distributor2
-			(this->input_size + this->bias_size, g.max_neuron-1);
+			(this->network_info.input_size + this->network_info.bias_size, g.max_neuron-1);
 		unsigned int neuron2 = distributor2(this->generator);
 			
 		if (is_output(neuron1) && is_output(neuron2))
@@ -330,7 +336,7 @@ namespace neat {
 
 		if (force_bias){
 			std::uniform_int_distribution<unsigned int> bias_choose
-				(this->input_size, this->input_size + this->output_size-1);
+				(this->network_info.input_size, this->network_info.input_size + this->network_info.output_size-1);
 			neuron1 = bias_choose(this->generator);			
 		}
 
@@ -575,7 +581,7 @@ namespace neat {
 	}
 
 	genome pool::breed_child(specie &s){
-		genome child(this->functional_nodes, this->mutation_rates);
+		genome child(this->network_info, this->mutation_rates);
 		std::uniform_real_distribution<double> distributor(0.0, 1.0);
 		std::uniform_int_distribution<unsigned int> choose_genome(0, s.genomes.size()-1);
 		if (distributor(this->generator) < this->mutation_rates.crossover_chance){
@@ -704,8 +710,9 @@ namespace neat {
 			input >> this->max_fitness;
 
 			// network information
-			input >> this->input_size >> this->output_size >> this->bias_size;	
-			this->functional_nodes = input_size + output_size + bias_size;			
+			input >> this->network_info.input_size >> this->network_info.output_size >> this->network_info.bias_size;	
+			this->network_info.functional_nodes = this->network_info.input_size + 
+				this->network_info.output_size + this->network_info.bias_size;			
 
 			// population information
 			this->speciating_parameters.read(input);
@@ -731,7 +738,7 @@ namespace neat {
 				input >> specie_population;
 
 				for (unsigned int i=0; i<specie_population; i++){
-					genome new_genome(this->functional_nodes, this->mutation_rates);
+					genome new_genome(this->network_info, this->mutation_rates);
 					input >> new_genome.fitness;
 					input >> new_genome.adjusted_fitness;
 					input >> new_genome.global_rank;
@@ -779,9 +786,10 @@ namespace neat {
 		output << this->max_fitness << std::endl;
 
 		// network information
-		output << this->input_size << " " <<  this->output_size << " " <<
-		   	this->bias_size << std::endl;	
-		this->functional_nodes = input_size + output_size + bias_size;
+		output << this->network_info.input_size << " " <<  this->network_info.output_size << " " <<
+		   	this->network_info.bias_size << std::endl;	
+		this->network_info.functional_nodes = this->network_info.input_size +
+		   	this->network_info.output_size + this->network_info.bias_size;
 
 		// population information
 		this->speciating_parameters.write(output, "");
