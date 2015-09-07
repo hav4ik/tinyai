@@ -43,7 +43,7 @@ namespace neat {
 		unsigned int population = 300;
 		double delta_disjoint = 2.0;
 		double delta_weights = 0.4;
-		double delta_threshold = 3.0;
+		double delta_threshold = 3.1;
 		unsigned int stale_species = 15;
 
 		void read(std::ifstream& o);
@@ -658,13 +658,9 @@ namespace neat {
 		this->rank_globally();
 		this->remove_stale_species();
 
-		std::cerr << "     >>> removed stale species" << std::endl;
-
 		for (auto s = this->species.begin(); s != this->species.end(); s++)
 			this->calculate_average_fitness((*s));
 		this->remove_weak_species();
-
-		std::cerr << "     >>> removed weak species" << std::endl;
 
 		std::vector<genome> children;
 		unsigned int sum = this->total_average_fitness();
@@ -677,7 +673,6 @@ namespace neat {
 
 		this->cull_species(true); // now in each species we have only one genome
 
-		std::cerr << "     >>> making babies" << std::endl;
 		// preparing for MAKING BABIES <3		
 		std::uniform_int_distribution<unsigned int> choose_specie(0, this->species.size()-1);
 		std::vector<specie*> species_pointer(0);
@@ -693,8 +688,6 @@ namespace neat {
 		for (size_t i=0; i<children.size(); i++)
 			this->add_to_species(children[i]);	
 		this->generation_number++;
-//		if (this->generation_number % 10 == 0)
-			std::cerr << "Generation " << this->generation_number << " successfully created!" << std::endl;
 	}	
 
 	void pool::import_fromfile(std::string filename){
@@ -868,11 +861,11 @@ namespace neat {
 	}
 
 	void speciating_parameter_container::write(std::ofstream& o, std::string prefix){
-		o << prefix << this->population;
-		o << prefix << this->delta_disjoint;
-		o << prefix << this->delta_weights;
-		o << prefix << this->delta_threshold;
-		o << prefix << this->stale_species; 
+		o << prefix << this->population << std::endl;
+		o << prefix << this->delta_disjoint << std::endl;
+		o << prefix << this->delta_weights << std::endl;
+		o << prefix << this->delta_threshold << std::endl;
+		o << prefix << this->stale_species << std::endl; 
 	}
 
 } // end of namespace neat
