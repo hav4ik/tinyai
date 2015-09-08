@@ -43,7 +43,7 @@ namespace neat {
 		unsigned int population = 300;
 		double delta_disjoint = 2.0;
 		double delta_weights = 0.4;
-		double delta_threshold = 3.1;
+		double delta_threshold = 1.3;
 		unsigned int stale_species = 15;
 
 		void read(std::ifstream& o);
@@ -78,9 +78,9 @@ namespace neat {
 		mutation_rate_container mutation_rates;
 		network_info_container network_info;
 
-		std::vector<gene> genes;
+		std::map<unsigned int, gene> genes;
 
-		genome(network_info_container& info, mutation_rate_container& rates){			
+		genome(network_info_container& info, mutation_rate_container& rates){	
 			mutation_rates = rates;
 			network_info = info;
 			max_neuron = network_info.functional_nodes;
@@ -132,52 +132,12 @@ namespace neat {
 		/* important part, only accecible for friend */
 		innovation_container innovation;
 
-		unsigned int generation_number = 1;
-
-	public:
-		/* pool parameters */
-		unsigned int max_fitness = 0;
-
-		/* mutation parameters */
-		mutation_rate_container mutation_rates;
-
-		/* species parameters */
-		speciating_parameter_container speciating_parameters;
-
-		/* neural network parameters */
-		network_info_container network_info;		
-
-		// pool's local random number generator
-		std::random_device rd;		
-		std::mt19937 generator;
-
-		// constructor
-		pool(unsigned int input, unsigned int output, unsigned int bias = 1){
-			this->network_info.input_size = input;
-			this->network_info.output_size = output;
-			this->network_info.bias_size = bias;
-			this->network_info.functional_nodes = input + output + bias;
-
-			// seed the mersenne twister with 
-			// a random number from our computer
-			generator.seed(rd());	
-
-			// create a basic generation with default genomes
-			for (unsigned int i = 0; i<this->speciating_parameters.population; i++){
-				genome new_genome(this->network_info, this->mutation_rates);
-				this->mutate(new_genome);
-				this->add_to_species(new_genome);
-			}
-
-		}
-
 		/* innovation tracking in current generation, should be cleared after each generation */
 		std::map<std::pair<unsigned int, unsigned int>, unsigned int> track;
 
-		/* species */
-		std::list<specie> species;
+
+		unsigned int generation_number = 1;
 		
-	private:
 		/* evolutionary methods */
 		genome crossover(const genome& g1, const genome& g2);
 		void mutate_weight(genome& g);
@@ -202,7 +162,47 @@ namespace neat {
 		void remove_weak_species();
 		void add_to_species(genome& child);
 
+
 	public:
+		/* pool parameters */
+		unsigned int max_fitness = 0;
+
+		/* mutation parameters */
+		mutation_rate_container mutation_rates;
+
+		/* species parameters */
+		speciating_parameter_container speciating_parameters;
+
+		/* neural network parameters */
+		network_info_container network_info;		
+
+		// pool's local random number generator
+		std::random_device rd;		
+		std::mt19937 generator;
+
+		/* species */
+		std::list<specie> species;
+
+		// constructor
+		pool(unsigned int input, unsigned int output, unsigned int bias = 1){
+			this->network_info.input_size = input;
+			this->network_info.output_size = output;
+			this->network_info.bias_size = bias;
+			this->network_info.functional_nodes = input + output + bias;
+
+			// seed the mersenne twister with 
+			// a random number from our computer
+			generator.seed(rd());	
+
+			// create a basic generation with default genomes
+			for (unsigned int i = 0; i<this->speciating_parameters.population; i++){
+				genome new_genome(this->network_info, this->mutation_rates);
+				this->mutate(new_genome);
+				this->add_to_species(new_genome);
+			}
+
+		}
+
 		/* next generation */
 		void new_generation();
 		unsigned int generation() { return this->generation_number; }
@@ -232,46 +232,39 @@ namespace neat {
 		genome child(this->network_info, this->mutation_rates);
 
 		auto it1 = g1.genes.begin();
-		auto it2 = g2.genes.begin();
 
 		// coin flip random number distributor
 		std::uniform_int_distribution<int> coin_flip(1, 2);	
 
 		for (; it1 != g1.genes.end(); it1++){			
 
-			// move forward if not match and include genes from the second genome
-			// if their fitness are equal
-			while ((*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end())
-				it2++;
-				
 			// if innovation marks match, do the crossover, else include from the first
 			// genome because its fitness is not smaller than the second's 
-			
+		
+			auto it2 = g2.genes.find((*it1).second.innovation_num);
 			if (it2 != g2.genes.end()){
-				if ((*it2).innovation_num == (*it1).innovation_num){
-					// do the coin flip
-					int coin = coin_flip(this->generator);
+
+				// do the coin flip
+				int coin = coin_flip(this->generator);
 					
-				// now, after flipping the coin, we do the crossover.
-				#ifdef INCLUDE_ENABLED_GENES_IF_POSSIBLE
-					if (coin == 2 && (*it2).enabled)
-						child.genes.push_back(*it2);
-					else
-						child.genes.push_back(*it1);
-				#else
-					if (coin == 2)
-						child.genes.push_back(*it2);
-					else
-						child.genes.push_back(*it1);
-				#endif
+			// now, after flipping the coin, we do the crossover.
+			#ifdef INCLUDE_ENABLED_GENES_IF_POSSIBLE
+				if (coin == 2 && (*it2).enabled)
+					child.genes[(*it1).second.innovation_num] = (*it2).second;
+				else
+					child.genes[(*it1).second.innovation_num] = (*it1).second;
+			#else
+				if (coin == 2)
+					child.genes[(*it1).second.innovation_num] = (*it2).second;
+				else
+					child.genes[(*it1).second.innovation_num] = (*it1).second;
+
+			#endif
 					
-				} else 
+			} else 
 					// as said before, we include the disjoint gene
 					// from the first (with larger fitness) otherwise
-					child.genes.push_back(*it1);
-			} else 
-				child.genes.push_back(*it1);	
-
+					child.genes[(*it1).second.innovation_num] = (*it1).second;
 		}
 
 		child.max_neuron = std::max(g1.max_neuron, g2.max_neuron);		
@@ -284,20 +277,24 @@ namespace neat {
 		double step = this->mutation_rates.step_size;
 		std::uniform_real_distribution<double> real_distributor(0.0, 1.0);
 
-		for (size_t i=0; i<g.genes.size(); i++){
+		for (auto it = g.genes.begin(); it != g.genes.end(); it++){
 			if (real_distributor(this->generator) < this->mutation_rates.perturb_chance) 
-				g.genes[i].weight += real_distributor(this->generator) * step * 2.0 - step;
+				(*it).second.weight += real_distributor(this->generator) * step * 2.0 - step;
 			else
-				g.genes[i].weight =  real_distributor(this->generator)*4.0 - 2.0; 
+				(*it).second.weight =  real_distributor(this->generator)*4.0 - 2.0; 
 			
 		}
 	}
 
 	void pool::mutate_enable_disable(genome& g, bool enable){
+
+		// that shit is safe because there's no changings in map
+		// during this function
 		std::vector<gene*> v;
-		for (size_t i=0; i<g.genes.size(); i++)
-			if (g.genes[i].enabled != enable)
-				v.push_back(&(g.genes[i]));
+
+		for (auto it = g.genes.begin(); it != g.genes.end(); it++)
+			if ((*it).second.enabled != enable)
+				v.push_back(&((*it).second));
 
 		if (v.size() == 0)
 			return ;
@@ -349,8 +346,8 @@ namespace neat {
 
 			std::queue<unsigned int> que;
 			std::vector<std::vector<unsigned int>> connections(g.max_neuron);	
-			for (size_t i=0; i<g.genes.size(); i++)
-				connections[g.genes[i].from_node].push_back(g.genes[i].to_node);
+			for (auto it = g.genes.begin(); it != g.genes.end(); it++)
+				connections[(*it).second.from_node].push_back((*it).second.to_node);
 			connections[neuron1].push_back(neuron2);
 						
 			for (size_t i=0; i<connections[neuron1].size(); i++)
@@ -377,8 +374,8 @@ namespace neat {
 		new_gene.to_node = neuron2;	
 
 		// if genome already has this connection
-		for (size_t i=0; i<g.genes.size(); i++)
-			if (g.genes[i].from_node == neuron1 && g.genes[i].to_node == neuron2)
+		for (auto it = g.genes.begin(); it != g.genes.end(); it++)
+			if ((*it).second.from_node == neuron1 && (*it).second.to_node == neuron2)
 				return ;
 		
 		// add new innovation if needed
@@ -388,7 +385,7 @@ namespace neat {
 		std::uniform_real_distribution<double> weight_generator(0.0, 1.0);
 		new_gene.weight = weight_generator(this->generator) * 4.0 - 2.0;		
 		
-		g.genes.push_back(new_gene);
+		g.genes[new_gene.innovation_num] = new_gene;
 	}	
 
 
@@ -401,13 +398,16 @@ namespace neat {
 		// randomly choose a gene to mutate
 		std::uniform_int_distribution<unsigned int> distributor(0, g.genes.size()-1);
 		unsigned int gene_id = distributor(this->generator);
-		if (g.genes[gene_id].enabled == false)
+		auto it = g.genes.begin();
+		std::advance(it, gene_id);
+
+		if ((*it).second.enabled == false)
 			return ;
 
-		g.genes[gene_id].enabled = false;
+		(*it).second.enabled = false;
 
 		gene new_gene1;
-		new_gene1.from_node = g.genes[gene_id].from_node;
+		new_gene1.from_node = (*it).second.from_node;
 		new_gene1.to_node = g.max_neuron-1; // to the last created neuron
 		new_gene1.weight = 1.0;
 		new_gene1.innovation_num = this->innovation.add_gene(new_gene1);
@@ -415,13 +415,13 @@ namespace neat {
 
 		gene new_gene2;
 		new_gene2.from_node = g.max_neuron-1; // from the last created neuron
-		new_gene2.to_node = g.genes[gene_id].to_node;
-		new_gene2.weight = g.genes[gene_id].weight;
+		new_gene2.to_node = (*it).second.to_node;
+		new_gene2.weight = (*it).second.weight;
 		new_gene2.innovation_num = this->innovation.add_gene(new_gene2);
 		new_gene2.enabled = true;
 
-		g.genes.push_back(new_gene1);
-		g.genes.push_back(new_gene2);
+		g.genes[new_gene1.innovation_num] = new_gene1;
+		g.genes[new_gene2.innovation_num] = new_gene2;
 	}
 
 	void pool::mutate(genome& g){
@@ -486,44 +486,31 @@ namespace neat {
 	double pool::disjoint(const genome& g1, const genome& g2){
 		auto it1 = g1.genes.begin();
 		auto it2 = g2.genes.begin();
-
+	
 		unsigned int disjoint_count = 0;
-		for (; it1 != g1.genes.end(); it1++){	
-			if (it2 != g2.genes.end())
-				for (; (*it2).innovation_num < (*it1).innovation_num && it2 != g2.genes.end(); it2++)
-					disjoint_count++;
-			if (it2 != g2.genes.end())
-				if ((*it1).innovation_num == (*it2).innovation_num)
-					continue;
-			disjoint_count++;
-		}
-		while (it2 != g2.genes.end()){
-			it2++;
-			disjoint_count++;
-		}
+		for (; it1 != g1.genes.end(); it1++)
+			if (g2.genes.find((*it1).second.innovation_num) == g2.genes.end())
+				disjoint_count++;
+
+		for (; it2 != g2.genes.end(); it2++)
+			if (g1.genes.find((*it2).second.innovation_num) == g1.genes.end())
+				disjoint_count++;
 
 		return (1. * disjoint_count) / (1. * std::max(g1.genes.size(), g2.genes.size()));
 	}
 	
 	double pool::weights(const genome& g1, const genome& g2){
-		auto it1 = g1.genes.begin();
-		auto it2 = g2.genes.begin();
+		auto it1 = g1.genes.begin();	
 
 		double sum = 0.0;
 		unsigned int coincident = 0;
-		for (; it1 != g1.genes.end(); it1++){
-			if (it2 != g2.genes.end())
-				while ((*it2).innovation_num < (*it1).innovation_num) {
-					it2++;
-					if (it2 == g2.genes.end())
-						break ;
-				}
 
-			if (it2 != g2.genes.end())	
-				if ((*it1).innovation_num == (*it2).innovation_num){
-					coincident++;
-					sum += std::abs((*it1).weight - (*it2).weight);
-				}
+		for (; it1 != g1.genes.end(); it1++){
+			auto it2 = g2.genes.find((*it1).second.innovation_num);
+			if (it2 != g2.genes.end()){
+				coincident++;
+				sum += std::abs((*it1).second.weight - (*it2).second.weight);
+			}
 		}
 
 		return 1. * sum / (1. * coincident);
@@ -569,7 +556,7 @@ namespace neat {
 			std::sort((*s).genomes.begin(), (*s).genomes.end(),
 					[](genome& a, genome& b){ return a.fitness > b.fitness; });
 
-			unsigned int remaining = std::ceil((*s).genomes.size() * 1. / 2.);
+			unsigned int remaining = std::ceil((*s).genomes.size() * 1.0 / 2.0);
 			// this will leave the most fit genome in specie,
 			// letting him make more and more babies (until someone in
 			// specie beat him or he becomes weaker during mutations
@@ -753,7 +740,7 @@ namespace neat {
 						input >> new_gene.to_node;
 						input >> new_gene.weight;
 						input >> new_gene.enabled;
-						new_genome.genes.push_back(new_gene);
+						new_genome.genes[new_gene.innovation_num] = new_gene;
 					}
 					
 					new_specie.genomes.push_back(new_genome);
@@ -816,8 +803,9 @@ namespace neat {
 				
 				output << "      " << (*s).genomes[i].max_neuron << " " <<
 				   	(*s).genomes[i].genes.size() << std::endl;
-				for (size_t j=0; j<(*s).genomes[i].genes.size(); j++){
-					gene& g = (*s).genomes[i].genes[j];
+				for (auto it = (*s).genomes[i].genes.begin();
+						it != (*s).genomes[i].genes.end(); it++){
+					gene& g = (*it).second;
 					output << "         ";
 					output << g.innovation_num << " " << g.from_node << " " << g.to_node << " "
 						<< g.weight << " " << g.enabled << std::endl;

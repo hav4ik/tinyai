@@ -152,24 +152,24 @@ namespace ann {
 					i<input_nodes.size() + output_nodes.size() + bias_nodes.size(); i++)
 				table[i] = i;
 
-			for (size_t i=0; i<a.genes.size(); i++){
-				if (!a.genes[i].enabled)
+			for (auto it = a.genes.begin(); it != a.genes.end(); it++){
+				if (!(*it).second.enabled)
 					continue;
 
 				neuron n;
-				if (table.find(a.genes[i].from_node) == table.end()){
+				if (table.find((*it).second.from_node) == table.end()){
 					nodes.push_back(n);
-					table[a.genes[i].from_node] = nodes.size()-1;
+					table[(*it).second.from_node] = nodes.size()-1;
 				}
-				if (table.find(a.genes[i].to_node) == table.end()){
+				if (table.find((*it).second.to_node) == table.end()){
 					nodes.push_back(n);
-					table[a.genes[i].to_node] = nodes.size()-1;
+					table[(*it).second.to_node] = nodes.size()-1;
 				}				
 			}
 
-			for (size_t i=0; i<a.genes.size(); i++)
-				nodes[table[a.genes[i].to_node]].in_nodes.push_back(
-						std::make_pair(table[a.genes[i].from_node], a.genes[i].weight));	
+			for (auto it = a.genes.begin(); it != a.genes.end(); it++)
+				nodes[table[(*it).second.to_node]].in_nodes.push_back(
+						std::make_pair(table[(*it).second.from_node], (*it).second.weight));	
 		}
 
 		void evaluate(const std::vector<double>& input, std::vector<double>& output,
