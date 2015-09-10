@@ -2,8 +2,8 @@
 #include <string>
 #include <cstdlib>
 #include <cmath>
-#include "../src/tinyneat.hpp"
-#include "../src/tinyann.hpp"
+#include <tinyneat.hpp>
+#include <tinyann.hpp>
 
 // returns the fitness.
 unsigned int xor_test(ann::neuralnet& n, bool write_output){
