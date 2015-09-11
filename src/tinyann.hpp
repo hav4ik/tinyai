@@ -87,8 +87,6 @@ namespace ann {
 		}
 
 		void evaluate_recurrent(const std::vector<double>& input, std::vector<double>& output){
-			for (size_t i=0; i<nodes.size(); i++)
-				nodes[i].value = 0.0, nodes[i].visited = false;
 
 			for (size_t i=0; i<input.size() && i<input_nodes.size(); i++){
 				nodes[input_nodes[i]].value = input[i];
