@@ -32,6 +32,7 @@ namespace ann {
 	class neuralnet {
 	private:
 		std::vector<neuron> nodes;
+		bool recurrent = false;
 
 		std::vector<size_t> input_nodes;
 		std::vector<size_t> bias_nodes;
@@ -123,6 +124,8 @@ namespace ann {
 			unsigned int output_size = a.network_info.output_size;
 			unsigned int bias_size = a.network_info.bias_size;
 
+			this->recurrent = a.network_info.recurrent;
+
 			nodes.clear();
 			input_nodes.clear();
 			bias_nodes.clear();
@@ -170,8 +173,7 @@ namespace ann {
 						std::make_pair(table[(*it).second.from_node], (*it).second.weight));	
 		}
 
-		void evaluate(const std::vector<double>& input, std::vector<double>& output,
-			   	bool recurrent = false){
+		void evaluate(const std::vector<double>& input, std::vector<double>& output){
 			if (recurrent)
 				this->evaluate_recurrent(input, output);
 			else
@@ -189,6 +191,13 @@ namespace ann {
 			try {
 				if (!o.is_open())
 					throw "error: cannot open file!";
+
+				std::string rec;
+				o >> rec;
+				if (rec == "recurrent")
+					this->recurrent = true;
+				if (rec == "non_recurrent")
+					this->recurrent = false;
 
 				unsigned int neuron_number;
 				o >> neuron_number;				
@@ -229,6 +238,10 @@ namespace ann {
 			std::ofstream o;
 			o.open(filename);
 
+			if (this->recurrent)
+				o << "recurrent" << std::endl;
+			else
+				o << "non-recurrent" << std::endl;
 			o << nodes.size() << std::endl << std::endl;	
 
 			for (size_t i=0; i<nodes.size(); i++){

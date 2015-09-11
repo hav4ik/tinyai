@@ -55,6 +55,7 @@ namespace neat {
 		unsigned int bias_size;
 		unsigned int output_size;
 		unsigned int functional_nodes;		
+		bool recurrent;
 	} network_info_container;
 
 	typedef struct {	
@@ -74,13 +75,14 @@ namespace neat {
 		unsigned int adjusted_fitness = 0;
 		unsigned int global_rank = 0;
 		unsigned int max_neuron;
+		unsigned int can_be_recurrent = false;
 
 		mutation_rate_container mutation_rates;
 		network_info_container network_info;
 
 		std::map<unsigned int, gene> genes;
 
-		genome(network_info_container& info, mutation_rate_container& rates){	
+		genome(network_info_container& info, mutation_rate_container& rates){
 			mutation_rates = rates;
 			network_info = info;
 			max_neuron = network_info.functional_nodes;
@@ -184,11 +186,13 @@ namespace neat {
 		std::list<specie> species;
 
 		// constructor
-		pool(unsigned int input, unsigned int output, unsigned int bias = 1){
+		pool(unsigned int input, unsigned int output, unsigned int bias = 1, 
+				bool rec = false){
 			this->network_info.input_size = input;
 			this->network_info.output_size = output;
 			this->network_info.bias_size = bias;
-			this->network_info.functional_nodes = input + output + bias;
+			this->network_info.functional_nodes = input + output + bias;			
+			this->network_info.recurrent = rec;
 
 			// seed the mersenne twister with 
 			// a random number from our computer
@@ -337,36 +341,37 @@ namespace neat {
 			neuron1 = bias_choose(this->generator);			
 		}
 
-	#ifndef ALLOWING_RECURRENCY_IN_NETWORK
-		// check for recurrency using BFS
-		bool has_recurrence = false;
-		if (is_bias(neuron1) || is_input(neuron1))
-			has_recurrence = false;
-		else {
+		if (!g.network_info.recurrent){
+			// check for recurrency using BFS
+			bool has_recurrence = false;
+			if (is_bias(neuron1) || is_input(neuron1))
+				has_recurrence = false;
+			else {
 
-			std::queue<unsigned int> que;
-			std::vector<std::vector<unsigned int>> connections(g.max_neuron);	
-			for (auto it = g.genes.begin(); it != g.genes.end(); it++)
-				connections[(*it).second.from_node].push_back((*it).second.to_node);
-			connections[neuron1].push_back(neuron2);
-						
-			for (size_t i=0; i<connections[neuron1].size(); i++)
-				que.push(connections[neuron1][i]);
-				while (!que.empty()){				
-				unsigned int tmp = que.front();
-				if (tmp == neuron1){
-					has_recurrence = true;
-					break;
+				std::queue<unsigned int> que;
+				std::vector<std::vector<unsigned int>> connections(g.max_neuron);	
+				for (auto it = g.genes.begin(); it != g.genes.end(); it++)
+					connections[(*it).second.from_node].push_back((*it).second.to_node);
+				connections[neuron1].push_back(neuron2);
+							
+				for (size_t i=0; i<connections[neuron1].size(); i++)
+					que.push(connections[neuron1][i]);
+					while (!que.empty()){				
+					unsigned int tmp = que.front();
+					if (tmp == neuron1){
+						has_recurrence = true;
+						break;
+					}
+					que.pop();
+					for (size_t i=0; i<connections[tmp].size(); i++)
+						que.push(connections[tmp][i]);				
 				}
-				que.pop();
-				for (size_t i=0; i<connections[tmp].size(); i++)
-					que.push(connections[tmp][i]);				
 			}
+			if (has_recurrence)
+				return ;
+
+			// now we are sure that it doesn't has any recurrency	
 		}
-		if (has_recurrence)
-			return ;
-		
-	#endif
 		
 		// now we can create a link 
 		gene new_gene;
@@ -698,6 +703,13 @@ namespace neat {
 			input >> this->network_info.input_size >> this->network_info.output_size >> this->network_info.bias_size;	
 			this->network_info.functional_nodes = this->network_info.input_size + 
 				this->network_info.output_size + this->network_info.bias_size;			
+			
+			std::string rec;
+			input >> rec;
+			if (rec == "rec")
+				this->network_info.recurrent = true;
+			if (rec == "nonrec")
+				this->network_info.recurrent = false;
 
 			// population information
 			this->speciating_parameters.read(input);
@@ -772,7 +784,11 @@ namespace neat {
 
 		// network information
 		output << this->network_info.input_size << " " <<  this->network_info.output_size << " " <<
-		   	this->network_info.bias_size << std::endl;	
+		   	this->network_info.bias_size << std::endl;
+		if (this->network_info.recurrent)
+			output << "rec" << std::endl;
+		else
+			output << "nonrec" << std::endl;	
 		this->network_info.functional_nodes = this->network_info.input_size +
 		   	this->network_info.output_size + this->network_info.bias_size;
 
@@ -795,12 +811,13 @@ namespace neat {
 
 			output << "   " << (*s).genomes.size() << std::endl;
 			for (size_t i=0; i<(*s).genomes.size(); i++){
-				this->mutation_rates.write(output, "      ");
 				output << "      ";
 			    output << (*s).genomes[i].fitness << " ";
 				output << (*s).genomes[i].adjusted_fitness << " ";
 				output << (*s).genomes[i].global_rank << std::endl;
-				
+
+				(*s).genomes[i].mutation_rates.write(output, "      ");
+
 				output << "      " << (*s).genomes[i].max_neuron << " " <<
 				   	(*s).genomes[i].genes.size() << std::endl;
 				for (auto it = (*s).genomes[i].genes.begin();

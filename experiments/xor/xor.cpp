@@ -15,22 +15,22 @@ unsigned int xor_test(ann::neuralnet& n, bool write_output){
 	if (write_output) std::cerr << "     > begin xor test" << std::endl << "        (";
 
 	input[0] = 0.0, input[1] = 0.0, answer = 0.0;
-	n.evaluate(input, output, true);
+	n.evaluate(input, output);
 	if (write_output) std::cerr << output[0] << " ";
 	fitness += std::min(1.0 / ((answer - output[0]) * (answer - output[0])), 50.0);	
 
 	input[0] = 0.0, input[1] = 1.0, answer = 1.0;
-	n.evaluate(input, output, true);
+	n.evaluate(input, output);
 	if (write_output) std::cerr << output[0] << " ";
 	fitness += std::min(1.0 / ((answer - output[0]) * (answer - output[0])), 50.0);	
 
 	input[0] = 1.0, input[1] = 0.0, answer = 1.0;
-	n.evaluate(input, output, true);
+	n.evaluate(input, output);
 	if (write_output) std::cerr << output[0] << " ";
 	fitness += std::min(1.0 / ((answer - output[0]) * (answer - output[0])), 50.0);	
 
 	input[0] = 1.0, input[1] = 1.0, answer = 0.0;
-	n.evaluate(input, output, true);
+	n.evaluate(input, output);
 	if (write_output) std::cerr << output[0] << ")";
 	fitness += std::min(1.0 / ((answer - output[0]) * (answer - output[0])), 50.0);	
 
@@ -47,7 +47,8 @@ void test_output(){
 }
 
 int main(){
-	neat::pool p(2, 1, 0);	
+	neat::pool p(2, 1, 0, false);
+	p.import_fromfile("xor_test.res");	
 	srand(time(NULL));
 	unsigned int max_fitness = 0;
 	while (max_fitness < 200){
