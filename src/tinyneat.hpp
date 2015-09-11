@@ -40,7 +40,7 @@ namespace neat {
 	} mutation_rate_container;
 
 	typedef struct {
-		unsigned int population = 200;
+		unsigned int population = 240;
 		double delta_disjoint = 2.0;
 		double delta_weights = 0.4;
 		double delta_threshold = 1.3;
