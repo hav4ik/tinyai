@@ -40,7 +40,7 @@ namespace neat {
 	} mutation_rate_container;
 
 	typedef struct {
-		unsigned int population = 300;
+		unsigned int population = 200;
 		double delta_disjoint = 2.0;
 		double delta_weights = 0.4;
 		double delta_threshold = 1.3;
@@ -831,6 +831,7 @@ namespace neat {
 
 			output << std::endl << std::endl;
 		}
+		output.close();
 	}
 
 	void mutation_rate_container::read(std::ifstream& o){

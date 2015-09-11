@@ -54,6 +54,69 @@ public:
         return inside;
     }
 
+    bool is_alive(){
+        return !dead;
+    }
+
+    void get_sensor(std::vector<double>& v, std::vector<ph::intPolygon>& pol){
+        sf::Vector2f sc, sl, sll, sr, srr;
+        float c, l, ll, r, rr;
+
+        sc = position + sensor_c;
+        sl = position + sensor_l;
+        sll = position + sensor_ll;
+        sr = position + sensor_r;
+        srr = position + sensor_rr;
+
+        for (size_t i=0; i<pol.size(); i++){
+            ph::intPolygon& p = pol[i];
+            sf::Vector2f ip;
+
+            ip = p.CheckIntersect(position, position + sensor_c);
+            if (ip.x >= 0 && ip.y >= 0){
+                float a = ip.x - position.x;
+                float b = ip.y - position.y;
+                c = std::sqrt(a*a + b*b);
+            }
+
+            ip = p.CheckIntersect(position, position + sensor_l);
+            if (ip.x >= 0 && ip.y >= 0){
+                float a = ip.x - position.x;
+                float b = ip.y - position.y;
+                l = std::sqrt(a*a + b*b);
+            }
+
+            ip = p.CheckIntersect(position, position + sensor_ll);
+            if (ip.x >= 0 && ip.y >= 0){
+                float a = ip.x - position.x;
+                float b = ip.y - position.y;
+                ll = std::sqrt(a*a + b*b);
+            }
+
+            ip = p.CheckIntersect(position, position + sensor_r);
+            if (ip.x >= 0 && ip.y >= 0){
+                float a = ip.x - position.x;
+                float b = ip.y - position.y;
+                r = std::sqrt(a*a + b*b);
+            }
+
+            ip = p.CheckIntersect(position, position + sensor_rr);
+            if (ip.x >= 0 && ip.y >= 0){
+                float a = ip.x - position.x;
+                float b = ip.y - position.y;
+                rr = std::sqrt(a*a + b*b);
+            }                
+        }
+
+        c = c / 25.0;
+        l = l / 25.0;
+        ll = ll / 25.0;
+        r = r / 25.0;
+        rr = rr / 25.0;
+
+        v[0] = c; v[1] = l; v[2] = ll; v[3] = r; v[4] = rr;
+    }
+
     car (sf::Vector2f pos, sf::Rect<int> finish) {
         dead = false;
         fitness = 0;
@@ -146,11 +209,11 @@ public:
     }
 
     void rotate_right(){
-        rotation = 100.0;
+        rotation = 110.0;
     }
 
     void rotate_left(){
-        rotation = -100.0;
+        rotation = -110.0;
     }
 
     void move_forward(){
@@ -229,6 +292,8 @@ void output_info(
     window.draw(text);
 }
 
+
+
 int main()
 {
     pl::Level level;
@@ -251,40 +316,150 @@ int main()
         pol.push_back(p);
     }
 
-
-
-    car c(sf::Vector2f(start.rect.left, start.rect.top), finish.rect);
-
     
+    // 5 input, 3 output, 1 bias, can be recurrent
+    neat::pool p(5, 3, 1, true);
+    p.import_fromfile("generation.dat");
+    bool have_a_winner = false;
+    unsigned int global_maxfitness = 0;
 
-    while(window.isOpen())
-    {
-        sf::Keyboard key;
-        if (key.isKeyPressed(sf::Keyboard::A))
-            c.rotate_left();
-        if (key.isKeyPressed(sf::Keyboard::D))
-            c.rotate_right();
-        if (key.isKeyPressed(sf::Keyboard::W))
-            c.move_forward();
+    // vector of cars
+    std::vector< std::pair<car,ann::neuralnet> > cars;
 
+    // iterator
+    unsigned int specie_counter = 0;
+    auto specie_it = p.species.begin();
+
+    // init initial
+    if (specie_it != p.species.end())
+        for (size_t i=0; i<(*specie_it).genomes.size(); i++){
+            car new_car(sf::Vector2f(start.rect.left, start.rect.top), 
+                finish.rect);
+            ann::neuralnet n;
+            n.from_genome((*specie_it).genomes[i]);
+            cars.push_back(std::make_pair(new_car, n));
+        }            
+
+    // main loop
+    while(window.isOpen() && (!have_a_winner))
+    {        
         sf::Event event;
         while(window.pollEvent(event))
         {
             if(event.type == sf::Event::Closed)
                 window.close();
+            else 
+                if (event.type == sf::Event::KeyPressed)
+                    if (event.key.code == sf::Keyboard::Escape)
+                        return 0;
 
         }
+
+
+        bool all_dead = true;
+        for (size_t i=0; i<cars.size(); i++)
+            if (cars[i].first.is_alive())
+                all_dead = false;
+
+        if (all_dead){
+            
+            if (specie_it != p.species.end()){
+                int best_id = -1;
+                for (size_t i=0; i<(*specie_it).genomes.size(); i++){
+                    (*specie_it).genomes[i].fitness = 
+                            cars[i].first.get_fitness();
+                    if ((*specie_it).genomes[i].fitness > global_maxfitness){
+                    global_maxfitness = (*specie_it).genomes[i].fitness; 
+                        best_id = i;
+                    }       
+                }
+                if (best_id != -1){
+                    ann::neuralnet& n = cars[best_id].second;
+                    n.export_tofile("best_network");
+                }
+            }
+
+            specie_it++;
+            specie_counter++;
+            cars.clear();
+
+            if (specie_it == p.species.end()){                
+                p.new_generation();
+                std::string fname = "result/gen";
+                fname += std::to_string(p.generation());
+                p.export_tofile(fname);
+                p.export_tofile("generation.dat");
+                std::cerr << "Starting new generation. Number = " << p.generation() << std::endl;
+                specie_it = p.species.begin();
+                specie_counter = 0;
+            }
+
+            if (specie_it != p.species.end())
+                for (size_t i=0; i<(*specie_it).genomes.size(); i++){
+                    car new_car(sf::Vector2f(start.rect.left, start.rect.top), 
+                        finish.rect);
+                    ann::neuralnet n;
+                    n.from_genome((*specie_it).genomes[i]);
+                    cars.push_back(std::make_pair(new_car, n));
+                }            
+        }
+
+        for (size_t i=0; i<cars.size(); i++){            
+            std::vector<double> input(5, 0.0);
+            std::vector<double> output(3, 0.0);
+
+            car& c = cars[i].first;
+            ann::neuralnet& n = cars[i].second;
+
+            if (!c.is_alive())
+                continue;
+
+            c.get_sensor(input, pol);
+            n.evaluate(input, output);
+
+            if (output[0] > 0.0)
+                c.move_forward();
+            if (output[1] > 0.0)
+                c.rotate_left();
+            if (output[2] > 0.0)
+                c.rotate_right();
+
+            c.move(pol);
+        }
+
+
+
+        unsigned int local_maxfitness = 0;
+        for (size_t i=0; i<cars.size(); i++)
+            if (cars[i].first.get_fitness() > local_maxfitness)
+                local_maxfitness = cars[i].first.get_fitness();
+    
+
+        size_t winner_id;
+        for (size_t i=0; i<cars.size(); i++)
+            if (cars[i].first.is_winner()){
+                have_a_winner = true;
+                winner_id = i;
+            }
+
+        if (have_a_winner)
+            cars[winner_id].second.export_tofile("winner_network");
+
 
         window.clear();
 
         level.Draw(window);
-        c.move(pol);
-        c.Draw(window);
-        output_info(window, font, 1, 1, 10, c.get_fitness(), c.get_fitness(), c.is_winner());
+        for (size_t i=0; i<cars.size(); i++)
+            cars[i].first.Draw(window);
 
+        output_info(window, font, p.generation(), 
+            specie_counter, cars.size(), global_maxfitness, local_maxfitness,
+            have_a_winner);
+       
         window.display();
     }
 
+    
     return 0;
 }
 
